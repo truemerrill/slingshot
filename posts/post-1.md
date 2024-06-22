@@ -16,7 +16,7 @@ So for my first posts on the forum, I am going to focus on *slingshot ballistics
 
 I have no idea if this is interesting to any of you.  I am just some nerd that's nerding out about slingshots.  But if it is interesting or useful, give me some feedback.  I've written some good code for this, and it's probably easy for me to look into other ammo types, environmental conditions, and other scenarios than the ones I cover here.
 
-The code is publicly available on Github.  Follow the repo here and I'll keep it up to date as I add new features.  If you can code Python I am open to contributions.  Just fork and pull request.
+The code is publicly available on Github.  [Follow the repo here](https://github.com/truemerrill/slingshot) and I'll keep it up to date as I add new features.  If you can code Python I am open to contributions.  Just fork and pull request.
 
 # Methodology
 
