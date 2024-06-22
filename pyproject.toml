@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slingshot"
+dynamic = ["version"]
+description = ''
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+keywords = []
+authors = [{ name = "True Merrill", email = "truemerrill@gmail.com" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = ["numpy", "scipy"]
+
+[project.urls]
+Documentation = "https://github.com/truemerrill/slingshot#readme"
+Issues = "https://github.com/truemerrill/slingshot/issues"
+Source = "https://github.com/truemerrill/slingshot"
+
+[tool.isort]
+profile = "black"
+
+[tool.flake8]
+max-line-length = 88
+
+[tool.hatch.version]
+path = "src/slingshot/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slingshot"]
+
+[tool.coverage.run]
+source_pkgs = ["slingshot", "tests"]
+branch = true
+parallel = true
