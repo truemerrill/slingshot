@@ -350,6 +350,33 @@ def potential_energy(state: Vec, mass: float) -> float:
     return mass * STANDARD_GRAVITY * h
 
 
+def ballistic_coefficient(
+    flow_speed: float,
+    mass: float,
+    diameter: float,
+    temperature: float = STANDARD_TEMPERATURE,
+    pressure: float = ATMOSPHERE
+) -> float:
+    """The ballistic coefficient as used in physics and engineering
+
+    Args:
+        flow_speed (float): the flow speed in meters per second
+        mass (float): the mass of the ammunition in kilograms
+        diameter (float): the diameter of the ammunition in meters
+        temperature (float, optional): the temperature in Kelvin. Defaults to
+            STANDARD_TEMPERATURE.
+        pressure (float, optional): the pressure in Pascals. Defaults to
+            ATMOSPHERE.
+
+    Returns:
+        float: the ballistic coefficient
+    """
+    re = reynolds_number(flow_speed, diameter, temperature, pressure)
+    cd = drag_coefficient(re)
+    area = np.pi * ((diameter / 2) ** 2)
+    return mass / (cd * area)
+
+
 def derivative(
     t: float,
     state: Vec,
