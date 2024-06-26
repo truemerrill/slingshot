@@ -1,0 +1,5 @@
+<div{% if id %} id="{{ id }}"{% endif %}{% if css_class %} class="{{ css_class }}"{% endif %}>
+{% for item in children %}
+{{ item | indent | safe }}
+{% endfor %}
+</div>

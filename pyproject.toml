@@ -22,7 +22,7 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
-dependencies = ["numpy", "scipy"]
+dependencies = ["numpy", "scipy", "jinja2", "plotly"]
 
 [project.urls]
 Documentation = "https://github.com/truemerrill/slingshot#readme"
@@ -40,6 +40,11 @@ path = "src/slingshot/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/slingshot"]
+include = ["src/slingshot/templates/**"]
+
+[tool.hatch.build.targets.sdist]
+packages = ["src/slingshot"]
+include = ["src/slingshot/templates/**"]
 
 [tool.coverage.run]
 source_pkgs = ["slingshot", "tests"]
