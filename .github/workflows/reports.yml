@@ -25,6 +25,7 @@ jobs:
       
       - name: Build reports
         run: |
+          which python
           python src/scripts/ballistics_reports.py
       
       - name: Setup pages
