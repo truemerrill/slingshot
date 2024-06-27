@@ -1,0 +1,70 @@
+    <style>
+        :root {
+            --color-first: #ED99DA;
+            --color-second: #888888;
+            --color-third: #DDDDDD;
+            --color-fourth: #0B0033;
+            --color-fifth: #656EF2;
+            --color-heading: var(--color-fifth);
+            --color-link: var(--color-first);
+            --color-border: var(--color-third);
+            --color-table-header: #F2F2F2;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            width: 8.0in;
+            max-width: 8.0in;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        /* For mobile devices */
+        @media only screen and (max-width: 768px) {
+            body {
+                width: 100%;
+                margin-left: 5px;
+                margin-right: 5px;
+            }
+        }
+        header {
+            text-align: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--color-border);
+        }
+        footer {
+            text-align: left;
+            padding-top: 20px;
+            border-top: 1px solid var(--color-border);
+            font-size: 0.9em;
+            color: var(--color-second);
+        }
+        footer p {
+            line-height: 0.3em;
+        }
+        a {
+            color: var(--color-link);
+        }
+        h1, h2, h3, h4 {
+            color: var(--color-heading);
+        }
+        .report-heading h1, h2 {
+            color: var(--color-fourth);
+        }
+        .content {
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        table, th, td {
+            border: 1px solid var(--color-border);
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: var(--color-table-header);
+        }
+    </style>

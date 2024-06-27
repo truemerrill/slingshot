@@ -1,6 +1,6 @@
 import traceback
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, cast
+from typing import Any, Callable, Literal, Iterable, cast
 from math import sqrt
 
 import numpy as np
@@ -322,6 +322,18 @@ def force(
     return Fg + Fd
 
 
+def speed(state: Vec) -> float:
+    """The speed
+
+    Args:
+        state (Vec): the 4-dimensional state vector (x, y, vx, vy)
+
+    Returns:
+        float: the speed in meters per second
+    """
+    return float(np.linalg.norm(state[2:]))
+
+
 def kinetic_energy(state: Vec, mass: float) -> float:
     """The kinetic energy
 
@@ -430,6 +442,8 @@ class OdeResult:
     message: str
     t_events: list[Vec]
     y_events: list[Vec]
+    t: NDArray[np.float64]
+    y: NDArray[np.float64]
 
 
 @dataclass
@@ -739,3 +753,36 @@ def solve_angle(
     )
 
     return L, t, y
+
+
+def solve_trajectory(
+    times: Iterable[float],
+    launch: Launch,
+    ammo: Ammunition,
+    environment: Environment = Environment(),
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    times = np.asarray(times)
+    args = (
+        ammo.mass,
+        ammo.diameter,
+        environment.temperature,
+        environment.pressure,
+    )
+
+    # Solve ODE
+    res = cast(
+        OdeResult,
+        solve_ivp(
+            fun=derivative,
+            args=args,
+            t_span=(times.min(), times.max()),
+            y0=launch.state(),
+            t_eval=times,
+            method="RK45",
+        ),
+    )
+
+    if res.status < 0:
+        raise ValueError(res.message)
+
+    return res.t, res.y
