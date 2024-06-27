@@ -22,7 +22,7 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
-dependencies = ["numpy", "scipy", "jinja2", "plotly"]
+dependencies = ["numpy", "scipy", "pandas", "jinja2", "plotly"]
 
 [project.urls]
 Documentation = "https://github.com/truemerrill/slingshot#readme"

@@ -322,6 +322,18 @@ def force(
     return Fg + Fd
 
 
+def speed(state: Vec) -> float:
+    """The speed
+
+    Args:
+        state (Vec): the 4-dimensional state vector (x, y, vx, vy)
+
+    Returns:
+        float: the speed in meters per second
+    """
+    return float(np.linalg.norm(state[2:]))
+
+
 def kinetic_energy(state: Vec, mass: float) -> float:
     """The kinetic energy
 

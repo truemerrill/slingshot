@@ -1,237 +1,287 @@
-import base64
-from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional, Protocol
+from typing import Any, Generator, Iterable
 
-import plotly.graph_objects as go  # type: ignore
-from jinja2 import Environment, PackageLoader, select_autoescape
-from jinja2.exceptions import TemplateNotFound
-from jinja2.loaders import split_template_path
+import jinja2
+import numpy as np
+import pandas as pd
+import plotly.express as px
+from numpy.typing import NDArray
+
+from .ballistics import (
+    Ammunition,
+    Environment,
+    Launch,
+    TargetMissError,
+    Vec,
+    speed,
+    kinetic_energy,
+    potential_energy,
+    solve_angle,
+    solve_max_distance,
+    solve_trajectory,
+)
+from .components import Dataframe, Table, Report, ReportSection, Figure, render
+from .units import (
+    ATMOSPHERE,
+    DEGREE,
+    FOOT,
+    FOOT_POUND,
+    GRAIN,
+    GRAM,
+    INCH,
+    JOULE,
+    METER,
+    MILLIBAR,
+    MILLIMETER,
+    SECOND,
+    to_celsius,
+    to_fahrenheit,
+)
 
 
-def indent(value: str, level: int = 1) -> str:
-    """Jinja2 filter for managing indentation levels
+@dataclass
+class _TrajectorySolution:
+    time: NDArray[np.float64]
+    state: NDArray[np.float64]
+
+
+@dataclass
+class _DistanceTableSolution:
+    range: float
+    time: float
+    state: Vec
+    launch: Launch
+    ammo: Ammunition
+    env: Environment
+    trajectory: _TrajectorySolution
+
+
+def _iter_distance_table_solutions(
+    launch_speed: float,
+    ammo: Ammunition,
+    environment: Environment = Environment(),
+    step: float = 10 * METER,
+) -> Generator[_DistanceTableSolution, None, None]:
+    """Iterate over the numerical solutions used to build a distance table
 
     Args:
-        value (str): the HTML to indent
-        level (int, optional): the indentation level. Defaults to 1.
+        launch_speed (float): the launch speed in meters per second
+        ammo (Ammunition): the ammunition
+        environment (Environment, optional): the environment. Defaults to
+            Environment().
+        step (float, optional): the step size. Defaults to 10*METER.
+
+    Yields:
+        Generator[_DistanceTableSolution, None, None]: the solutions
+    """
+    launch = Launch(height=0 * METER, speed=launch_speed, angle=0 * DEGREE)
+
+    # Solve for the maximum distance
+    L_max, t_max, y_max = solve_max_distance(
+        target_height=0 * METER, launch=launch, ammo=ammo, environment=environment
+    )
+    distance_max = y_max[0]
+
+    # Iterate over distances up to the max distance
+    for d in np.arange(start=step, stop=distance_max, step=step):
+        try:
+            L, t, y = solve_angle(
+                target_distance=d,
+                target_height=0 * METER,
+                launch=launch,
+                ammo=ammo,
+                environment=environment,
+            )
+        except TargetMissError:
+            continue
+
+        times = np.linspace(0, t, 128)
+        t_traj, y_traj = solve_trajectory(times, L, ammo, environment)
+        yield _DistanceTableSolution(
+            range=d,
+            time=t,
+            state=y,
+            launch=L,
+            ammo=ammo,
+            env=environment,
+            trajectory=_TrajectorySolution(time=t_traj, state=y_traj),
+        )
+
+    # Yield the max range solution
+    times = np.linspace(0, t_max, 128)
+    t_traj, y_traj = solve_trajectory(times, L_max, ammo, environment)
+
+    yield _DistanceTableSolution(
+        range=distance_max,
+        time=t_max,
+        state=y_max,
+        launch=L_max,
+        ammo=ammo,
+        env=environment,
+        trajectory=_TrajectorySolution(time=t_traj, state=y_traj),
+    )
+
+
+def _range_table_dataframe(solutions: Iterable[_DistanceTableSolution]) -> pd.DataFrame:
+    """Construct a range table dataframe
+
+    Args:
+        solutions (Iterable[_DistanceTableSolution]): sequence of solutions
 
     Returns:
-        str: the indented HTML
+        pd.DataFrame: the range table dataframe
     """
-    id = "    " * level
-    lines = [id + line if line else line for line in value.splitlines()]
-    return "\n".join(lines)
+
+    def convert(solution: _DistanceTableSolution) -> dict[str, Any]:
+        energy = kinetic_energy(solution.state, solution.ammo.mass)
+        return {
+            "Range (m)": solution.range / METER,
+            "Range (ft)": solution.range / FOOT,
+            "Angle (deg)": solution.launch.angle / DEGREE,
+            "Time (s)": solution.time / SECOND,
+            "Energy (J)": energy / JOULE,
+            "Energy (FPE)": energy / FOOT_POUND,
+        }
+
+    return pd.DataFrame([convert(s) for s in solutions])
 
 
-# Global Jinja2 rendering environment
-ENV = Environment(
-    loader=PackageLoader("slingshot"),
-    autoescape=select_autoescape(),
-    trim_blocks=True,
-    lstrip_blocks=True,
-)
-ENV.filters["indent"] = indent
+def _range_table(solutions: Iterable[_DistanceTableSolution]) -> Dataframe:
+    return Dataframe(_range_table_dataframe(solutions), id="range-table")
 
 
-class Component(Protocol):
-    """Protocol for a component of a web report"""
+def _parameter_table(
+    launch_speed: float, ammo: Ammunition, environment: Environment
+) -> Table:
+    def convert(value: float, m1: float, s1: str, m2: float, s2: str) -> str:
+        return f"{(value / m1):.4g} {s1} ({(value / m2):.4g} {s2})"
 
-    def render(self, env: Environment) -> str:
-        """Render as HTML
+    energy = ammo.mass * (launch_speed**2) / 2
+    T_celcius = to_celsius(environment.temperature)
+    T_fahr = to_fahrenheit(environment.temperature)
+
+    return Table(
+        headers=("Parameter", "Value"),
+        rows=(
+            ("Ammo material", ammo.material),
+            ("Ammo diameter", convert(ammo.diameter, MILLIMETER, "mm", INCH, "in")),
+            ("Ammo mass", convert(ammo.mass, GRAM, "g", GRAIN, "gr")),
+            (
+                "Launch speed",
+                convert(launch_speed, METER / SECOND, "m/s", FOOT / SECOND, "FPS"),
+            ),
+            ("Launch energy", convert(energy, JOULE, "J", FOOT_POUND, "FPE")),
+            ("Air temperature", f"{T_celcius} C ({T_fahr} F)"),
+            (
+                "Air pressure",
+                convert(environment.pressure, MILLIBAR, "mbar", ATMOSPHERE, "atm"),
+            ),
+        ),
+    )
+
+
+def _trajectory_dataframe(solutions: Iterable[_DistanceTableSolution]) -> pd.DataFrame:
+    def solution_dataframe(solution: _DistanceTableSolution) -> pd.DataFrame:
+        s = np.array([speed(y) for y in solution.trajectory.state.T])
+        ke = np.array(
+            [kinetic_energy(y, solution.ammo.mass) for y in solution.trajectory.state.T]
+        )
+        pe = np.array(
+            [
+                potential_energy(y, solution.ammo.mass)
+                for y in solution.trajectory.state.T
+            ]
+        )
+        return pd.DataFrame(
+            {
+                "Distance (m)": solution.trajectory.state[0, :] / METER,
+                "Height (m)": solution.trajectory.state[1, :] / METER,
+                "Energy (J)": (ke + pe) / JOULE,
+                "Speed (m/s)": s / (METER / SECOND),
+                "Angle (deg)": solution.launch.angle / DEGREE,
+                "Range (m)": solution.range / METER,
+            }
+        )
+
+    components = [solution_dataframe(s) for s in solutions]
+    return pd.concat(components, axis=0).reset_index(drop=True)  # type: ignore
+
+
+def _trajectory_figure(solutions: Iterable[_DistanceTableSolution]) -> Figure:
+    df = _trajectory_dataframe(solutions)
+    fig = px.line(  # type: ignore
+        df,
+        x="Distance (m)",
+        y="Height (m)",
+        hover_data={"Energy (J)": True, "Speed (m/s)": True},
+        line_group="Range (m)",
+        color="Range (m)"
+    )
+    fig.update_layout(  # type: ignore
+        showlegend=False,
+    )
+    return Figure(fig)
+
+
+class BallisticReportPage:
+    """A page for ballistics reports"""
+
+    def __init__(
+        self,
+        ammo_name: str,
+        ammo: Ammunition,
+        launch_speed: float,
+        environment: Environment = Environment(),
+        step: float = 10 * METER,
+    ):
+        """Initialize the page builder
 
         Args:
-            env (Environment): the Jinja2 environment
-
-        Returns:
-            str: the rendered HTML
+            ammo_name (float): the name of the ammunition.
+            ammo (Ammunition): the ammunition.
+            launch_speed (float): the launch speed in meters per second.
+            environment (Environment, optional): the environment. Defaults to
+                Environment().
+            step (float, optional): the step size for the range table. Defaults
+                to 10*METER.
         """
-        ...
-
-
-def render(component: Component | str, env: Environment = ENV) -> str:
-    """Render a component of a web report
-
-    Args:
-        component (Component | str): the component or a string
-        env (Environment, optional): the Jinja2 environment. Defaults to ENV.
-
-    Returns:
-        str: the rendered HTML
-    """
-    if isinstance(component, str):
-        return component
-    return component.render(env)
-
-
-class Heading:
-    """Component for headings"""
-
-    def __init__(self, content: str, level: int = 2):
-        self.content = content
-        self.level = level
-
-    def render(self, env: Environment) -> str:
-        return f"<h{self.level}>{self.content}</h{self.level}>"
-
-
-class Paragraph:
-    """Component for paragraph blocks"""
-
-    def __init__(self, contents: str):
-        self.contents = contents
-
-    def render(self, env: Environment) -> str:
-        return f"<p>{self.contents}</p>"
-
-
-class Div:
-    """Component for div blocks"""
-
-    def __init__(
-        self,
-        children: Iterable[Component],
-        id: Optional[str] = None,
-        css_class: Optional[str] = None,
-    ):
-        self.children = tuple(children)
-        self.id = id
-        self.css_class = css_class
-
-    def render(self, env: Environment) -> str:
-        template = env.get_template("partials/div.html")
-        return template.render(
-            id=self.id,
-            css_class=self.css_class,
-            children=[c.render(env) for c in self.children],
+        self.lauch_speed = launch_speed
+        self.ammo = ammo
+        self.ammo_name = ammo_name
+        self.environment = environment
+        self.step = step
+        self.solutions = list(
+            _iter_distance_table_solutions(launch_speed, ammo, environment, step)
         )
 
+    def __call__(self, filename: Path, env: jinja2.Environment) -> None:
+        """Write a ballistics report
 
-class Table:
-    """Component for HTML tables"""
+        Args:
+            filename (Path): the path to the file to write
+            env (jinja2.Environment): the Jinja2 environment
+        """
+        speed = self.lauch_speed / (FOOT / SECOND)
+        title = f"Ballistic report for {self.ammo_name} @ {speed:4.4g} FPS"
 
-    def __init__(
-        self,
-        headers: Iterable[str],
-        rows: Iterable[Iterable[str]],
-        id: Optional[str] = None,
-        css_class: Optional[str] = None,
-    ):
-        self.headers = tuple(headers)
-        self.rows = rows
-        self.id = id
-        self.css_class = css_class
-
-    def render(self, env: Environment) -> str:
-        template = env.get_template("partials/table.html")
-        return template.render(
-            id=self.id,
-            css_class=self.css_class,
-            headers=self.headers,
-            rows=[list(r) for r in self.rows],
-        )
-
-
-class Figure:
-    """Component for a Plotly figure"""
-
-    def __init__(self, figure: go.Figure, template: str = "plotly_white"):
-        figure.update_layout(template=template) # type: ignore
-        self.figure = figure
-
-    def render(self, env: Environment) -> str:
-        return self.figure.to_html(full_html=False)  # type: ignore
-
-
-class StaticImage:
-    """Component for a static embedded image"""
-
-    def __init__(self, template_name: str, mimetype: str = "image/png"):
-        self.template_name = template_name
-        self.mimetype = mimetype
-
-    def render(self, env: Environment) -> str:
-        # Get the template root
-        loader = env.loader
-        if not hasattr(loader, "_template_root"):
-            raise TemplateNotFound(self.template_name)
-        template_root = getattr(loader, "_template_root")
-
-        # Read the file as a binary blob
-        filename = Path(template_root, *split_template_path(self.template_name))
-        if not filename.is_file():
-            raise TemplateNotFound(self.template_name)
-        with open(filename, "rb") as f:
-            data = base64.b64encode(f.read()).decode("utf-8")
-        return f'<img src="data:{self.mimetype};base64, {data}"/>'
-
-
-class ReportHeading:
-    """Component for the heading of a report"""
-
-    def __init__(self, content: str, css_class: Optional[str] = "report-heading"):
-        self.content = content
-        self.css_class = css_class
-
-    def render(self, env: Environment) -> str:
-        template = env.get_template("partials/div.html")
-        return template.render(
-            css_class=self.css_class,
-            children=[Heading(content=self.content).render(env)],
-        )
-
-
-class ReportSection:
-    """Component for a section of a report"""
-
-    def __init__(
-        self,
-        title: str,
-        children: Iterable[Component],
-        id: Optional[str] = None,
-        css_class: Optional[str] = "report-section",
-    ):
-        self.title = title
-        self.children = tuple(children)
-        self.id = id
-        self.css_class = css_class
-
-    def render(self, env: Environment) -> str:
-        template = env.get_template("partials/div.html")
-        return template.render(
-            id=self.id,
-            css_class=self.css_class,
-            children=[
-                Heading(self.title, level=3).render(env),
-                Div(children=self.children, css_class="report-section-content").render(
-                    env
+        report = Report(
+            title=title,
+            sections=[
+                ReportSection(
+                    "Parameters",
+                    children=[
+                        _parameter_table(self.lauch_speed, self.ammo, self.environment)
+                    ],
+                ),
+                ReportSection(
+                    "Ballistic table", children=[_range_table(self.solutions)]
+                ),
+                ReportSection(
+                    "Trajectories", children=[_trajectory_figure(self.solutions)]
                 ),
             ],
         )
 
-
-def today() -> str:
-    return datetime.today().strftime("%Y-%m-%d")
-
-
-class Report:
-    """Component for a report"""
-
-    def __init__(
-        self,
-        title: str,
-        sections: Iterable[ReportSection],
-    ):
-        self.title = title
-        self.sections = sections
-
-    def render(self, env: Environment) -> str:
-        template = env.get_template("report.html")
-        logo = StaticImage("assets/logo.png")
-        return template.render(
-            title=self.title,
-            logo=logo.render(env),
-            date=today(),
-            heading=ReportHeading(self.title).render(env),
-            sections=[s.render(env) for s in self.sections],
-        )
+        with open(filename, "w") as f:
+            f.write(render(report, env))
