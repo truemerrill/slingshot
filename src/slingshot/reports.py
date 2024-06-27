@@ -1,8 +1,9 @@
 import base64
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable, Optional, Protocol
 
-from typing import Protocol, Iterable, Optional
+import plotly.graph_objects as go  # type: ignore
 from jinja2 import Environment, PackageLoader, select_autoescape
 from jinja2.exceptions import TemplateNotFound
 from jinja2.loaders import split_template_path
@@ -28,7 +29,7 @@ ENV = Environment(
     loader=PackageLoader("slingshot"),
     autoescape=select_autoescape(),
     trim_blocks=True,
-    lstrip_blocks=True
+    lstrip_blocks=True,
 )
 ENV.filters["indent"] = indent
 
@@ -102,7 +103,7 @@ class Div:
         return template.render(
             id=self.id,
             css_class=self.css_class,
-            children=[c.render(env) for c in self.children]
+            children=[c.render(env) for c in self.children],
         )
 
 
@@ -114,7 +115,7 @@ class Table:
         headers: Iterable[str],
         rows: Iterable[Iterable[str]],
         id: Optional[str] = None,
-        css_class: Optional[str] = None
+        css_class: Optional[str] = None,
     ):
         self.headers = tuple(headers)
         self.rows = rows
@@ -127,8 +128,19 @@ class Table:
             id=self.id,
             css_class=self.css_class,
             headers=self.headers,
-            rows=[list(r) for r in self.rows]
+            rows=[list(r) for r in self.rows],
         )
+
+
+class Figure:
+    """Component for a Plotly figure"""
+
+    def __init__(self, figure: go.Figure, template: str = "plotly_white"):
+        figure.update_layout(template=template) # type: ignore
+        self.figure = figure
+
+    def render(self, env: Environment) -> str:
+        return self.figure.to_html(full_html=False)  # type: ignore
 
 
 class StaticImage:
@@ -146,22 +158,18 @@ class StaticImage:
         template_root = getattr(loader, "_template_root")
 
         # Read the file as a binary blob
-        filename = Path(template_root, *split_template_path(self.template_name))       
+        filename = Path(template_root, *split_template_path(self.template_name))
         if not filename.is_file():
             raise TemplateNotFound(self.template_name)
         with open(filename, "rb") as f:
-            data = base64.b64encode(f.read()).decode('utf-8')
+            data = base64.b64encode(f.read()).decode("utf-8")
         return f'<img src="data:{self.mimetype};base64, {data}"/>'
 
 
 class ReportHeading:
     """Component for the heading of a report"""
 
-    def __init__(
-        self,
-        content: str,
-        css_class: Optional[str] = "report-heading"
-    ):
+    def __init__(self, content: str, css_class: Optional[str] = "report-heading"):
         self.content = content
         self.css_class = css_class
 
@@ -169,9 +177,7 @@ class ReportHeading:
         template = env.get_template("partials/div.html")
         return template.render(
             css_class=self.css_class,
-            children=[
-                Heading(content=self.content).render(env)
-            ]
+            children=[Heading(content=self.content).render(env)],
         )
 
 
@@ -195,18 +201,17 @@ class ReportSection:
         return template.render(
             id=self.id,
             css_class=self.css_class,
-            title=self.title,
             children=[
-                Div(
-                    children=self.children,
-                    css_class="report-section-content"
-                ).render(env)
-            ]
+                Heading(self.title, level=3).render(env),
+                Div(children=self.children, css_class="report-section-content").render(
+                    env
+                ),
+            ],
         )
 
 
 def today() -> str:
-    return datetime.today().strftime('%Y-%m-%d')
+    return datetime.today().strftime("%Y-%m-%d")
 
 
 class Report:
@@ -228,5 +233,5 @@ class Report:
             logo=logo.render(env),
             date=today(),
             heading=ReportHeading(self.title).render(env),
-            sections=[s.render(env) for s in self.sections]
+            sections=[s.render(env) for s in self.sections],
         )
